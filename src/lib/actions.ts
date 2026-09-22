@@ -136,38 +136,124 @@ export async function updateSettings(formData: FormData) {
   revalidatePath("/");
 }
 
+// RFC-4180-ish CSV parser: handles quoted fields, embedded commas, escaped quotes ("").
+function parseCsvRows(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const next = text[i + 1];
+
+    if (inQuotes) {
+      if (char === '"' && next === '"') {
+        field += '"';
+        i++;
+      } else if (char === '"') {
+        inQuotes = false;
+      } else {
+        field += char;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = true;
+    } else if (char === ",") {
+      row.push(field);
+      field = "";
+    } else if (char === "\n" || char === "\r") {
+      if (char === "\r" && next === "\n") i++;
+      row.push(field);
+      field = "";
+      if (row.some((c) => c.trim().length > 0)) rows.push(row);
+      row = [];
+    } else {
+      field += char;
+    }
+  }
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    if (row.some((c) => c.trim().length > 0)) rows.push(row);
+  }
+
+  return rows;
+}
+
+function normalizeHeader(h: string): string {
+  return h.trim().toLowerCase().replace(/[\s_-]+/g, "");
+}
+
+const HEADER_ALIASES: Record<string, string[]> = {
+  business: ["business", "company", "companyname", "businessname", "organization", "org", "account", "accountname"],
+  contactName: ["contactname", "name", "fullname", "contact", "contactperson"],
+  firstName: ["firstname", "fname", "first"],
+  lastName: ["lastname", "lname", "last", "surname"],
+  phone: ["phone", "phonenumber", "mobile", "cell", "telephone", "contactphone", "businessphone", "primaryphone"],
+  email: ["email", "emailaddress", "contactemail", "primaryemail"],
+  website: ["website", "url", "domain", "companywebsite", "site"],
+  industry: ["industry", "sector", "category", "vertical"],
+  location: ["location", "city", "address", "citystate", "region"],
+  source: ["source", "leadsource", "channel"],
+  notes: ["notes", "note", "comment", "comments", "description"],
+};
+
 function parseCsv(text: string): Record<string, string>[] {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
-  return lines.slice(1).map((line) => {
-    const cells = line.split(",").map((c) => c.trim());
-    const row: Record<string, string> = {};
-    headers.forEach((h, i) => (row[h] = cells[i] ?? ""));
-    return row;
+  const rows = parseCsvRows(text);
+  if (rows.length < 2) return [];
+
+  const rawHeaders = rows[0].map(normalizeHeader);
+  // For each canonical field, find the first raw header index that matches one of its aliases.
+  const fieldIndex: Record<string, number> = {};
+  for (const [field, aliases] of Object.entries(HEADER_ALIASES)) {
+    const idx = rawHeaders.findIndex((h) => aliases.includes(h));
+    if (idx !== -1) fieldIndex[field] = idx;
+  }
+
+  return rows.slice(1).map((cells) => {
+    const get = (field: string) => {
+      const idx = fieldIndex[field];
+      return idx === undefined ? "" : (cells[idx] ?? "").trim();
+    };
+    const contactName =
+      get("contactName") || [get("firstName"), get("lastName")].filter(Boolean).join(" ");
+    return {
+      business: get("business"),
+      contactName,
+      phone: get("phone"),
+      email: get("email"),
+      website: get("website"),
+      industry: get("industry"),
+      location: get("location"),
+      source: get("source"),
+      notes: get("notes"),
+    };
   });
 }
 
 export async function importLeadsCsv(formData: FormData) {
   const file = formData.get("file");
-  if (!(file instanceof File)) return { imported: 0 };
+  if (!(file instanceof File)) return { imported: 0, total: 0, skipped: 0 };
 
   const text = await file.text();
   const rows = parseCsv(text);
 
-  const data = rows
-    .filter((r) => r.business || r.contactname)
-    .map((r) => ({
-      business: r.business || "Untitled",
-      contactName: r.contactname || r["contact name"] || "",
-      phone: r.phone || "",
-      email: r.email || undefined,
-      website: r.website || undefined,
-      industry: r.industry || undefined,
-      location: r.location || undefined,
-      source: r.source || "Import",
-      status: "New",
-    }));
+  const usable = rows.filter((r) => r.business || r.contactName);
+
+  const data = usable.map((r) => ({
+    business: r.business || r.contactName || "Untitled",
+    contactName: r.contactName || "",
+    phone: r.phone || "",
+    email: r.email || undefined,
+    website: r.website || undefined,
+    industry: r.industry || undefined,
+    location: r.location || undefined,
+    source: r.source || "Import",
+    notes: r.notes || undefined,
+    status: "New",
+  }));
 
   if (data.length) {
     await prisma.lead.createMany({ data });
@@ -176,5 +262,5 @@ export async function importLeadsCsv(formData: FormData) {
   revalidatePath("/leads");
   revalidatePath("/");
   revalidatePath("/calling");
-  return { imported: data.length };
+  return { imported: data.length, total: rows.length, skipped: rows.length - usable.length };
 }

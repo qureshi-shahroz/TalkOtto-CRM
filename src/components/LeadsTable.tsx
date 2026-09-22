@@ -48,7 +48,19 @@ export function LeadsTable({
     startTransition(async () => {
       const res = await importLeadsCsv(fd);
       router.refresh();
-      alert(`Imported ${res.imported} lead${res.imported === 1 ? "" : "s"}.`);
+      if (res.total === 0) {
+        alert("Couldn't read any rows from that file — is it a CSV with a header row?");
+      } else if (res.imported === 0) {
+        alert(
+          `Imported 0 of ${res.total} rows. None of them had a recognizable business or contact name column. ` +
+            `Expected a header like "Business"/"Company" and/or "Contact Name"/"Name".`
+        );
+      } else {
+        alert(
+          `Imported ${res.imported} of ${res.total} lead${res.total === 1 ? "" : "s"}` +
+            (res.skipped ? ` (${res.skipped} skipped — no business or contact name).` : ".")
+        );
+      }
       if (fileInputRef.current) fileInputRef.current.value = "";
     });
   }
