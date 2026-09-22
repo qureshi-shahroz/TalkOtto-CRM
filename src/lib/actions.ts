@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import type { CallOutcome } from "@/lib/constants";
 
@@ -186,30 +187,67 @@ function normalizeHeader(h: string): string {
   return h.trim().toLowerCase().replace(/[\s_-]+/g, "");
 }
 
-const HEADER_ALIASES: Record<string, string[]> = {
-  business: ["business", "company", "companyname", "businessname", "organization", "org", "account", "accountname"],
-  contactName: ["contactname", "name", "fullname", "contact", "contactperson"],
-  firstName: ["firstname", "fname", "first"],
-  lastName: ["lastname", "lname", "last", "surname"],
-  phone: ["phone", "phonenumber", "mobile", "cell", "telephone", "contactphone", "businessphone", "primaryphone"],
-  email: ["email", "emailaddress", "contactemail", "primaryemail"],
-  website: ["website", "url", "domain", "companywebsite", "site"],
-  industry: ["industry", "sector", "category", "vertical"],
-  location: ["location", "city", "address", "citystate", "region"],
-  source: ["source", "leadsource", "channel"],
-  notes: ["notes", "note", "comment", "comments", "description"],
-};
+// Checked in this order; a header is claimed by the first field whose keyword it contains
+// (not exact-match — "Org Name" should still hit "org", "Point of Contact" should hit "contact").
+// firstName/lastName are checked before contactName's broad "name" so "First Name"/"Last Name"
+// don't get swallowed by it; contactName's own list stays specific for the same reason.
+const FIELD_KEYWORDS: [string, string[]][] = [
+  ["business", ["company", "business", "organization", "organisation", "org", "account", "employer", "firm", "vendor", "client"]],
+  ["firstName", ["firstname", "fname"]],
+  ["lastName", ["lastname", "lname", "surname"]],
+  ["contactName", ["contactname", "fullname", "leadname", "personname", "owner", "manager", "poc", "pointofcontact", "decisionmaker", "representative", "contact", "name"]],
+  ["phone", ["phone", "mobile", "cell", "telephone", "tel"]],
+  ["email", ["email", "mail"]],
+  ["website", ["website", "domain", "url", "site", "web"]],
+  ["industry", ["industry", "sector", "category", "vertical", "niche"]],
+  ["location", ["location", "city", "address", "region", "state"]],
+  ["source", ["source", "channel"]],
+  ["notes", ["note", "comment", "description", "remark"]],
+];
 
-function parseCsv(text: string): Record<string, string>[] {
-  const rows = parseCsvRows(text);
+function cellToString(v: ExcelJS.CellValue): string {
+  if (v === null || v === undefined) return "";
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (typeof v === "object") {
+    if ("richText" in v) return v.richText.map((t) => t.text).join("");
+    if ("text" in v) return String(v.text ?? "");
+    if ("result" in v) return String(v.result ?? "");
+  }
+  return String(v).trim();
+}
+
+async function parseXlsxRows(buffer: ArrayBuffer): Promise<string[][]> {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.worksheets[0];
+  if (!sheet) return [];
+
+  const rows: string[][] = [];
+  sheet.eachRow((row) => {
+    const cells: string[] = [];
+    row.eachCell({ includeEmpty: true }, (cell) => cells.push(cellToString(cell.value)));
+    if (cells.some((c) => c.trim().length > 0)) rows.push(cells);
+  });
+  return rows;
+}
+
+function rowsToRecords(rows: string[][]): Record<string, string>[] {
   if (rows.length < 2) return [];
 
   const rawHeaders = rows[0].map(normalizeHeader);
-  // For each canonical field, find the first raw header index that matches one of its aliases.
+  // Greedy, priority-ordered, substring match: each header can be claimed by only one
+  // field, and once claimed it's skipped for the rest — so "Org Name" and "Owner" both
+  // land correctly even though only one of them is an exact keyword ("org" vs "owner").
   const fieldIndex: Record<string, number> = {};
-  for (const [field, aliases] of Object.entries(HEADER_ALIASES)) {
-    const idx = rawHeaders.findIndex((h) => aliases.includes(h));
-    if (idx !== -1) fieldIndex[field] = idx;
+  const claimed = new Set<number>();
+  for (const [field, keywords] of FIELD_KEYWORDS) {
+    const idx = rawHeaders.findIndex(
+      (h, i) => !claimed.has(i) && keywords.some((kw) => h.includes(kw))
+    );
+    if (idx !== -1) {
+      fieldIndex[field] = idx;
+      claimed.add(idx);
+    }
   }
 
   return rows.slice(1).map((cells) => {
@@ -233,14 +271,19 @@ function parseCsv(text: string): Record<string, string>[] {
   });
 }
 
-export async function importLeadsCsv(formData: FormData) {
+export async function importLeadsFile(formData: FormData) {
   const file = formData.get("file");
-  if (!(file instanceof File)) return { imported: 0, total: 0, skipped: 0 };
+  if (!(file instanceof File)) {
+    return { imported: 0, total: 0, skipped: 0, headers: [] as string[] };
+  }
 
-  const text = await file.text();
-  const rows = parseCsv(text);
+  const name = file.name.toLowerCase();
+  const rows = name.endsWith(".xlsx") || name.endsWith(".xlsm")
+    ? await parseXlsxRows(await file.arrayBuffer())
+    : parseCsvRows(await file.text());
 
-  const usable = rows.filter((r) => r.business || r.contactName);
+  const records = rowsToRecords(rows);
+  const usable = records.filter((r) => r.business || r.contactName);
 
   const data = usable.map((r) => ({
     business: r.business || r.contactName || "Untitled",
@@ -262,5 +305,10 @@ export async function importLeadsCsv(formData: FormData) {
   revalidatePath("/leads");
   revalidatePath("/");
   revalidatePath("/calling");
-  return { imported: data.length, total: rows.length, skipped: rows.length - usable.length };
+  return {
+    imported: data.length,
+    total: records.length,
+    skipped: records.length - usable.length,
+    headers: rows[0] ?? [],
+  };
 }

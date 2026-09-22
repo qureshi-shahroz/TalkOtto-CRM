@@ -8,7 +8,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { LeadFormModal } from "@/components/LeadFormModal";
 import { LEAD_STATUSES, CALL_OUTCOMES } from "@/lib/constants";
 import { formatDate, cn } from "@/lib/utils";
-import { importLeadsCsv } from "@/lib/actions";
+import { importLeadsFile } from "@/lib/actions";
 import Link from "next/link";
 
 export function LeadsTable({
@@ -46,14 +46,15 @@ export function LeadsTable({
     const fd = new FormData();
     fd.set("file", file);
     startTransition(async () => {
-      const res = await importLeadsCsv(fd);
+      const res = await importLeadsFile(fd);
       router.refresh();
       if (res.total === 0) {
-        alert("Couldn't read any rows from that file — is it a CSV with a header row?");
+        alert("Couldn't read any rows from that file — is it a CSV/Excel file with a header row?");
       } else if (res.imported === 0) {
         alert(
-          `Imported 0 of ${res.total} rows. None of them had a recognizable business or contact name column. ` +
-            `Expected a header like "Business"/"Company" and/or "Contact Name"/"Name".`
+          `Imported 0 of ${res.total} rows. None of them had a recognizable business or contact name column.\n\n` +
+            `Expected a header like "Business"/"Company" and/or "Contact Name"/"Name".\n\n` +
+            `Headers found in your file: ${res.headers.join(", ") || "(none)"}`
         );
       } else {
         alert(
@@ -125,12 +126,12 @@ export function LeadsTable({
             className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-foreground/80 hover:bg-surface-2 disabled:opacity-60"
           >
             <Upload className="h-4 w-4" />
-            {isPending ? "Importing…" : "Import CSV"}
+            {isPending ? "Importing…" : "Import CSV/Excel"}
           </button>
           <input
             ref={fileInputRef}
             type="file"
-            accept=".csv"
+            accept=".csv,.xlsx,.xlsm"
             className="hidden"
             onChange={onImportChange}
           />
