@@ -22,11 +22,11 @@ export default async function LeadsPage({
       q
         ? {
             OR: [
-              { business: { contains: q } },
-              { contactName: { contains: q } },
+              { business: { contains: q, mode: "insensitive" } },
+              { contactName: { contains: q, mode: "insensitive" } },
               { phone: { contains: q } },
-              { email: { contains: q } },
-              { industry: { contains: q } },
+              { email: { contains: q, mode: "insensitive" } },
+              { industry: { contains: q, mode: "insensitive" } },
             ],
           }
         : {},
