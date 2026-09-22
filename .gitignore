@@ -39,3 +39,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# database (local data — back up via Leads > Export instead)
+/prisma/*.db
+/prisma/*.db-journal
+
+# local-only Claude Code settings
+.claude/settings.local.json

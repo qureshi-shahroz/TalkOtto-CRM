@@ -1,36 +1,38 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Voxline — Call Command
 
-## Getting Started
+A lightweight, local call & lead tracker for solo sales. Inspired by the
+[Voxline Sales Command](https://chrome-call-flow.lovable.app/) dashboard design, scoped down to
+one person: real leads, real call logging, a real dashboard — no fake team stats, no telephony
+integration required.
 
-First, run the development server:
+## Stack
+
+- Next.js (App Router) + TypeScript + Tailwind CSS
+- SQLite via Prisma ORM — a single `prisma/dev.db` file, no server to host
+- Recharts for the dashboard charts
+
+## Getting started
 
 ```bash
+npm install
+npx prisma migrate dev   # creates prisma/dev.db and applies the schema
+npm run db:seed          # optional: loads sample leads to try it out
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Then open http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## What's here
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- **Dashboard** — live stats computed from your own data: calls today/this week, connection
+  rate, a 14-day calls chart, outcome breakdown, and a lead-to-close funnel.
+- **Leads** — a searchable/filterable table. Add, edit, delete, import a CSV, export a CSV.
+- **Calling** — a manual call queue (overdue follow-ups first, then never-called leads). Pick up
+  the phone yourself, click an outcome, jot notes and a next follow-up date, and it logs the call
+  and moves to the next lead. `tel:` links use whatever calling app is registered on your machine.
+- **Settings** — your name, company, and daily call target (drives the sidebar progress bar).
 
-## Learn More
+## Data
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Everything lives in `prisma/dev.db` (SQLite), ignored by git. Back up or move your data with the
+**Export** button on the Leads page, which downloads a CSV of every lead.

@@ -1,0 +1,45 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Lead {
+  id            String     @id @default(cuid())
+  business      String
+  contactName   String
+  phone         String
+  email         String?
+  website       String?
+  industry      String?
+  location      String?
+  source        String?
+  status        String     @default("New") // New | Qualified | Nurture | Customer | Lost
+  callStatus    String     @default("Not called") // Not called | No answer | Voicemail | Connected | Not interested | Interested | Demo booked | Follow up | Closed | Wrong number
+  callsCount    Int        @default(0)
+  lastCalledAt  DateTime?
+  nextFollowUp  DateTime?
+  notes         String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  callLogs      CallLog[]
+}
+
+model CallLog {
+  id        String   @id @default(cuid())
+  leadId    String
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  outcome   String   // No answer | Voicemail | Connected | Not interested | Interested | Demo booked | Follow up | Closed | Wrong number
+  notes     String?
+  calledAt  DateTime @default(now())
+}
+
+model Settings {
+  id          String  @id @default("settings")
+  userName    String  @default("You")
+  companyName String  @default("Tech House")
+  dailyCallTarget Int @default(40)
+}
