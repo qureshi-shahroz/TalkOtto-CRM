@@ -6,9 +6,10 @@ import { Download, Upload, Plus, PhoneCall } from "lucide-react";
 import type { Lead } from "@prisma/client";
 import { StatusBadge } from "@/components/StatusBadge";
 import { LeadFormModal } from "@/components/LeadFormModal";
+import { ImportMappingModal } from "@/components/ImportMappingModal";
 import { LEAD_STATUSES, CALL_OUTCOMES } from "@/lib/constants";
 import { formatDate, cn } from "@/lib/utils";
-import { importLeadsFile } from "@/lib/actions";
+import { parseImportFile } from "@/lib/actions";
 import Link from "next/link";
 
 export function LeadsTable({
@@ -26,6 +27,11 @@ export function LeadsTable({
   const [modalLead, setModalLead] = useState<Lead | null | "new">(openNew ? "new" : null);
   const [isPending, startTransition] = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importData, setImportData] = useState<{
+    headers: string[];
+    rows: string[][];
+    suggested: Record<string, number | null>;
+  } | null>(null);
 
   function updateParam(key: string, value: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -46,23 +52,13 @@ export function LeadsTable({
     const fd = new FormData();
     fd.set("file", file);
     startTransition(async () => {
-      const res = await importLeadsFile(fd);
-      router.refresh();
-      if (res.total === 0) {
-        alert("Couldn't read any rows from that file — is it a CSV/Excel file with a header row?");
-      } else if (res.imported === 0) {
-        alert(
-          `Imported 0 of ${res.total} rows. None of them had a recognizable business or contact name column.\n\n` +
-            `Expected a header like "Business"/"Company" and/or "Contact Name"/"Name".\n\n` +
-            `Headers found in your file: ${res.headers.join(", ") || "(none)"}`
-        );
-      } else {
-        alert(
-          `Imported ${res.imported} of ${res.total} lead${res.total === 1 ? "" : "s"}` +
-            (res.skipped ? ` (${res.skipped} skipped — no business or contact name).` : ".")
-        );
-      }
+      const res = await parseImportFile(fd);
       if (fileInputRef.current) fileInputRef.current.value = "";
+      if (res.rows.length === 0) {
+        alert("Couldn't read any rows from that file — is it a CSV/Excel file with a header row?");
+        return;
+      }
+      setImportData(res);
     });
   }
 
@@ -215,6 +211,15 @@ export function LeadsTable({
 
       {modalLead && (
         <LeadFormModal lead={modalLead === "new" ? undefined : modalLead} onClose={closeModal} />
+      )}
+
+      {importData && (
+        <ImportMappingModal
+          headers={importData.headers}
+          rows={importData.rows}
+          suggested={importData.suggested}
+          onClose={() => setImportData(null)}
+        />
       )}
     </div>
   );

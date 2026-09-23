@@ -231,64 +231,66 @@ async function parseXlsxRows(buffer: ArrayBuffer): Promise<string[][]> {
   return rows;
 }
 
-function rowsToRecords(rows: string[][]): Record<string, string>[] {
-  if (rows.length < 2) return [];
-
-  const rawHeaders = rows[0].map(normalizeHeader);
-  // Greedy, priority-ordered, substring match: each header can be claimed by only one
-  // field, and once claimed it's skipped for the rest — so "Org Name" and "Owner" both
-  // land correctly even though only one of them is an exact keyword ("org" vs "owner").
-  const fieldIndex: Record<string, number> = {};
+// Best-effort starting point for the mapping UI — the user confirms or corrects it,
+// so a wrong guess here just means an extra click, not a silently botched import.
+function suggestMapping(headers: string[]): Record<string, number | null> {
+  const rawHeaders = headers.map(normalizeHeader);
   const claimed = new Set<number>();
+  const suggested: Record<string, number | null> = {};
+
   for (const [field, keywords] of FIELD_KEYWORDS) {
     const idx = rawHeaders.findIndex(
       (h, i) => !claimed.has(i) && keywords.some((kw) => h.includes(kw))
     );
-    if (idx !== -1) {
-      fieldIndex[field] = idx;
-      claimed.add(idx);
-    }
+    suggested[field] = idx === -1 ? null : idx;
+    if (idx !== -1) claimed.add(idx);
   }
-
-  return rows.slice(1).map((cells) => {
-    const get = (field: string) => {
-      const idx = fieldIndex[field];
-      return idx === undefined ? "" : (cells[idx] ?? "").trim();
-    };
-    const contactName =
-      get("contactName") || [get("firstName"), get("lastName")].filter(Boolean).join(" ");
-    return {
-      business: get("business"),
-      contactName,
-      phone: get("phone"),
-      email: get("email"),
-      website: get("website"),
-      industry: get("industry"),
-      location: get("location"),
-      source: get("source"),
-      notes: get("notes"),
-    };
-  });
+  return suggested;
 }
 
-export async function importLeadsFile(formData: FormData) {
+export async function parseImportFile(formData: FormData) {
   const file = formData.get("file");
   if (!(file instanceof File)) {
-    return { imported: 0, total: 0, skipped: 0, headers: [] as string[] };
+    return { headers: [] as string[], rows: [] as string[][], suggested: {} };
   }
 
   const name = file.name.toLowerCase();
-  const rows = name.endsWith(".xlsx") || name.endsWith(".xlsm")
+  const allRows = name.endsWith(".xlsx") || name.endsWith(".xlsm")
     ? await parseXlsxRows(await file.arrayBuffer())
     : parseCsvRows(await file.text());
 
-  const records = rowsToRecords(rows);
+  const headers = allRows[0] ?? [];
+  const rows = allRows.slice(1);
+  return { headers, rows, suggested: suggestMapping(headers) };
+}
+
+export async function createLeadsFromMapping(input: {
+  rows: string[][];
+  mapping: Record<string, number | null | undefined>;
+}) {
+  const get = (cells: string[], field: string) => {
+    const idx = input.mapping[field];
+    return idx === null || idx === undefined ? "" : (cells[idx] ?? "").trim();
+  };
+
+  const records = input.rows.map((cells) => ({
+    business: get(cells, "business"),
+    contactName: get(cells, "contactName"),
+    phone: get(cells, "phone"),
+    email: get(cells, "email"),
+    website: get(cells, "website"),
+    industry: get(cells, "industry"),
+    location: get(cells, "location"),
+    source: get(cells, "source"),
+    notes: get(cells, "notes"),
+  }));
+
   const usable = records.filter((r) => r.business || r.contactName);
 
   const data = usable.map((r) => ({
     business: r.business || r.contactName || "Untitled",
-    contactName: r.contactName || "",
-    phone: r.phone || "",
+    contactName: r.contactName,
+    phone: r.phone,
     email: r.email || undefined,
     website: r.website || undefined,
     industry: r.industry || undefined,
@@ -305,10 +307,5 @@ export async function importLeadsFile(formData: FormData) {
   revalidatePath("/leads");
   revalidatePath("/");
   revalidatePath("/calling");
-  return {
-    imported: data.length,
-    total: records.length,
-    skipped: records.length - usable.length,
-    headers: rows[0] ?? [],
-  };
+  return { imported: data.length, total: records.length, skipped: records.length - usable.length };
 }

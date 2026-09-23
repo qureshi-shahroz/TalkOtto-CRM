@@ -31,6 +31,18 @@ export const STATUS_COLORS: Record<string, string> = {
   Lost: "bg-rose-500/15 text-rose-300 border-rose-500/30",
 };
 
+export const IMPORT_FIELDS: { key: string; label: string }[] = [
+  { key: "business", label: "Business / Company" },
+  { key: "contactName", label: "Contact name" },
+  { key: "phone", label: "Phone" },
+  { key: "email", label: "Email" },
+  { key: "website", label: "Website" },
+  { key: "industry", label: "Industry" },
+  { key: "location", label: "Location" },
+  { key: "source", label: "Source" },
+  { key: "notes", label: "Notes" },
+];
+
 export const OUTCOME_COLORS: Record<string, string> = {
   "Not called": "bg-slate-500/15 text-slate-300 border-slate-500/30",
   "No answer": "bg-slate-500/15 text-slate-300 border-slate-500/30",
